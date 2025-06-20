@@ -1,0 +1,5 @@
+com\labredes\monitor\StatisticsDisplay.class
+com\labredes\monitor\CsvLogger.class
+com\labredes\monitor\PacketInfo.class
+com\labredes\monitor\NetworkMonitor.class
+com\labredes\monitor\PacketAnalyzer.class
