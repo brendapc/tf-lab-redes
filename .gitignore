@@ -1,0 +1,33 @@
+# Maven
+/target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# Eclipse/IntelliJ/VSCode
+.classpath
+.project
+.settings/
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# Arquivos de log e CSV gerados pelo monitor
+camada2.csv
+camada3.csv
+camada4.csv
+
+# Arquivos temporários
+*.log
+*.tmp
+*.swp
+
+# Arquivos de build auxiliares
+*.class
+*.jar
+*.war
+*.ear
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
