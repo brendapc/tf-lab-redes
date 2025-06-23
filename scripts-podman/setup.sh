@@ -1,107 +1,167 @@
 #!/bin/bash
 
-# Caminho da pasta local no Windows mapeada para os containers
-# Mantenha esta pasta para colocar seu executável do monitor e os fontes/executáveis do traffic_tunnel
-PASTA_LOCAL="/c/lab-redes"
-PASTA_CONTAINER="/home/lab-redes"
+# Este script configura um ambiente de rede com Docker para o Trabalho Final de Redes de Computadores.
+# Inclui um servidor proxy e múltiplos clientes em uma rede virtual,
+# permitindo o monitoramento de tráfego com raw sockets.
 
-# Verifica se Podman está instalado
-echo "Verificando instalação do Podman..."
-if ! command -v podman &> /dev/null
-then
-    echo "Podman não encontrado. Instale-o manualmente no Windows."
+# Variáveis de Configuração
+# Caminho da pasta local no Windows que será mapeada para os containers.
+# Ajuste este caminho se sua estrutura for diferente.
+# Ex: C:\lab-redes\tf-lab-redes no Windows será /mnt/c/lab-redes/tf-lab-redes no WSL2.
+PASTA_LOCAL="/mnt/c/lab-redes/tf-lab-redes"
+# Como esta pasta será vista dentro dos containers (caminho absoluto)
+PASTA_CONTAINER="/home/lab-redes-project"
+
+# Nomes dos containers
+PROXY_CONTAINER_NAME="proxy-server"
+CLIENT_CONTAINER_NAME_PREFIX="cliente"
+NUM_CLIENTS=1 # Ajustado para 1 cliente, como você mencionou que usará apenas um
+
+# Nome da rede virtual Docker
+NETWORK_NAME="lab_redes_tunel"
+# Subnet para a LAN virtual onde clientes e proxy estarão.
+# Esta subnet (172.31.66.0/24) é mencionada no PDF para a interface tun0. 
+NETWORK_SUBNET="172.31.66.0/24"
+
+# --- Início do Script ---
+
+echo "--- Iniciando Configuração do Ambiente Docker ---"
+
+# 1. Verifica se Docker está instalado no WSL2
+echo "Verificando instalação do Docker CLI..."
+if ! command -v docker &> /dev/null; then
+    echo "ERRO: Docker CLI não encontrado. Certifique-se de que o Docker Desktop está rodando no Windows"
+    echo "e que o Docker CLI está configurado para o seu WSL2 (sudo apt install docker.io)."
     exit 1
 else
-    echo "Podman encontrado."
+    echo "Docker CLI encontrado."
 fi
 
-# Baixar imagem labredes
-echo "Baixando imagem labredes..."
-podman pull ghcr.io/sjohann81/labredes:latest # Adicionado :latest para garantir a versão mais recente 
-
-# Criar rede lab_redes_tunel
-# Nome da rede alterado para evitar conflitos e ser mais descritivo
-echo "Criando rede virtual 'lab_redes_tunel'..."
-if podman network exists lab_redes_tunel; then
-    echo "Rede 'lab_redes_tunel' já existe. Pulando criação."
-else
-    # Subnet para a LAN virtual onde clientes e proxy estarão.
-    # Esta subnet (172.31.66.0/24) é mencionada no PDF para a interface tun0 
-    podman network create lab_redes_tunel --subnet 172.31.66.0/24
+# 2. Baixar imagem labredes
+echo "Baixando imagem ghcr.io/sjohann81/labredes:latest..."
+docker pull --quiet ghcr.io/sjohann81/labredes:latest
+if [ $? -ne 0 ]; then
+    echo "ERRO: Falha ao baixar a imagem labredes. Verifique sua conexão ou o nome da imagem."
+    exit 1
 fi
+echo "Imagem labredes pronta."
 
-# Definir nomes dos containers
-PROXY_CONTAINER_NAME="proxy-server"
-CLIENT_CONTAINER_NAME_PREFIX="client"
-NUM_CLIENTS=2 # Você pode ajustar o número de clientes aqui
+# 3. Remover a rede virtual antiga para garantir um estado limpo
+echo "Removendo rede virtual antiga '$NETWORK_NAME' (se existir)..."
+docker network rm "$NETWORK_NAME" &> /dev/null
+echo "Rede antiga removida (ou não existia)."
 
-# Remover containers antigos se existirem
-echo "Removendo containers antigos..."
-podman rm -f "$PROXY_CONTAINER_NAME" &> /dev/null
+# 4. Criar rede virtual customizada
+echo "Criando rede virtual '$NETWORK_NAME' com subnet $NETWORK_SUBNET..."
+docker network create --subnet "$NETWORK_SUBNET" "$NETWORK_NAME"
+if [ $? -ne 0 ]; then
+    echo "ERRO: Falha ao criar a rede '$NETWORK_NAME'. Pode haver um conflito de IP com outra rede."
+    echo "Verifique 'docker network ls' e as configurações de rede do seu sistema."
+    exit 1
+fi
+echo "Rede '$NETWORK_NAME' criada com sucesso."
+
+# 5. Remover containers antigos para garantir um estado limpo
+echo "Removendo containers antigos (se existirem)..."
+docker rm -f "$PROXY_CONTAINER_NAME" &> /dev/null
 for i in $(seq 1 $NUM_CLIENTS); do
-    podman rm -f "${CLIENT_CONTAINER_NAME_PREFIX}${i}" &> /dev/null
+    docker rm -f "${CLIENT_CONTAINER_NAME_PREFIX}${i}" &> /dev/null
 done
+echo "Containers antigos removidos (ou não existiam)."
 
-# Criar container do Servidor Proxy
+# 6. Criar container do Servidor Proxy
 echo "Criando container do Servidor Proxy: $PROXY_CONTAINER_NAME"
-podman run -d --name "$PROXY_CONTAINER_NAME" \
+docker run -d --name "$PROXY_CONTAINER_NAME" \
     -v "$PASTA_LOCAL":"$PASTA_CONTAINER" \
-    --cap-add NET_ADMIN --privileged \
-    --network lab_redes_tunel \
+    --privileged \
+    --network "$NETWORK_NAME" \
+    --dns 8.8.8.8 \
+    --dns 8.8.4.4 \
     ghcr.io/sjohann81/labredes:latest \
     sleep infinity # Mantém o container rodando indefinidamente
 
-# Criar containers Cliente(s)
+if [ $? -ne 0 ]; then
+    echo "ERRO: Falha ao criar o container do Servidor Proxy '$PROXY_CONTAINER_NAME'."
+    echo "Verifique a saída do comando acima para detalhes."
+    exit 1
+fi
+echo "Container '$PROXY_CONTAINER_NAME' criado com sucesso."
+
+# 7. Criar containers Cliente(s)
 for i in $(seq 1 $NUM_CLIENTS); do
     container_name="${CLIENT_CONTAINER_NAME_PREFIX}${i}"
     echo "Criando container Cliente: $container_name"
-    podman run -d --name "$container_name" \
+    docker run -d --name "$container_name" \
         -v "$PASTA_LOCAL":"$PASTA_CONTAINER" \
-        --cap-add NET_ADMIN --privileged \
-        --network lab_redes_tunel \
+        --privileged \
+        --network "$NETWORK_NAME" \
+        --dns 8.8.8.8 \
+        --dns 8.8.4.4 \
         ghcr.io/sjohann81/labredes:latest \
         sleep infinity # Mantém o container rodando indefinidamente
+
+    if [ $? -ne 0 ]; then
+        echo "ERRO: Falha ao criar o container Cliente '$container_name'."
+        echo "Verifique a saída do comando acima para detalhes."
+        exit 1
+    fi
+    echo "Container '$container_name' criado com sucesso."
 done
 
 echo ""
-echo "Ambiente criado com sucesso!"
-podman ps --format "table {{.Names}}\t{{.Status}}\t{{.ID}}"
+echo "--- Ambiente de Rede Docker Configurado ---"
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.ID}}"
 
 echo ""
 echo "--- Próximos Passos (Manualmente dentro dos containers) ---"
 echo ""
-echo "1. Copie o executável do 'traffic_tunnel' e os scripts clientes (se houver) para $PASTA_LOCAL."
-echo "   Ex: Crie uma pasta 'traffic_tunnel_bin' em $PASTA_LOCAL e coloque os executáveis lá."
+echo "Este script configurou a rede Docker e iniciou os containers."
+echo "Agora, configure e execute os programas dentro dos containers conforme as etapas abaixo:"
 echo ""
-echo "2. Acesse o container do Servidor Proxy:"
-echo "   podman exec -it $PROXY_CONTAINER_NAME bash"
-echo "   Dentro do proxy, vá para $PASTA_CONTAINER (ex: cd /home/lab-redes/traffic_tunnel_bin)."
-echo "   Compile o seu programa monitor aqui (ou copie o executável compilado)."
-echo "   Obtenha o IP do proxy na rede 'lab_redes_tunel': ip addr show eth0"
-echo "   Execute o traffic_tunnel no modo servidor:"
-echo "   sudo ./traffic_tunnel <interface_proxy_LAN_ex_eth0> -s <ip_proxy_LAN>"
-echo "   Configure as regras de iptables para NAT (conforme instruções do PDF, página 3):"
-echo "   echo 1 > /proc/sys/net/ipv4/ip_forward"
-echo "   iptables -t nat -A POSTROUTING -o <interface_internet_proxy_ex_eth0> -j MASQUERADE"
-echo "   iptables -A FORWARD -i tun0 -o <interface_internet_proxy_ex_eth0> -j ACCEPT"
-echo "   iptables -A FORWARD -i <interface_internet_proxy_ex_eth0> -o tun0 -m state --state RELATED,ESTABLISHED -j ACCEPT"
-echo "   Execute seu programa monitor para capturar na interface tun0:"
-echo "   sudo ./seu_monitor_executavel tun0" # Seu monitor precisará receber a interface como argumento
+echo "1. **Compilação e Executáveis:**"
+echo "   Certifique-se de que o 'traffic_tunnel' (em $PASTA_CONTAINER/traffic_tunnel/) e"
+echo "   seu programa monitor (em $PASTA_CONTAINER/src/) já foram compilados e seus executáveis estão presentes."
+echo "   (Isso deve ser feito no seu ambiente WSL2 antes de executar este script)."
+echo ""
+echo "2. **Configuração do Servidor Proxy (dentro do container '$PROXY_CONTAINER_NAME'):**"
+echo "   Abra um novo terminal WSL2 e acesse o container:"
+echo "   docker exec -it $PROXY_CONTAINER_NAME bash"
+echo "   Dentro do container, execute os comandos:"
+echo "   a) Instale o JRE se seu monitor for Java: apt update && apt install -y openjdk-17-jre"
+echo "   b) Habilite o roteamento de IP: echo 1 > /proc/sys/net/ipv4/ip_forward"
+echo "   c) Navegue para a pasta do projeto: cd $PASTA_CONTAINER"
+echo "   d) Obtenha o IP da LAN do proxy: ip addr show eth0 (Anote o IP, ex: 172.31.66.2)"
+echo "   e) Inicie o traffic_tunnel no modo servidor (com nohup para rodar em segundo plano):"
+echo "      nohup sudo $PASTA_CONTAINER/traffic_tunnel/traffic_tunnel eth0 -s <IP_DA_ETH0_DO_PROXY> &"
+echo "      (Aguarde 5 segundos e verifique tun0 com 'ip addr show tun0', deve ser 172.31.66.1)"
+echo "   f) Configure as regras de iptables para NAT (essencial para acesso à internet):"
+echo "      iptables -t nat -A POSTROUTING -s 172.31.66.0/24 -o eth0 -j MASQUERADE"
+echo "      iptables -A FORWARD -i tun0 -o eth0 -j ACCEPT"
+echo "      iptables -A FORWARD -i eth0 -o tun0 -m state --state RELATED,ESTABLISHED -j ACCEPT"
+echo "   g) Execute seu programa monitor na interface tun0:"
+echo "      sudo java -jar $PASTA_CONTAINER/target/seu_monitor.jar tun0"
+echo ""
+echo "3. **Configuração do Cliente (dentro do container '$CLIENT_CONTAINER_NAME_PREFIX1'):**"
+echo "   Abra um novo terminal WSL2 e acesse o container:"
+echo "   docker exec -it ${CLIENT_CONTAINER_NAME_PREFIX}1 bash"
+echo "   Dentro do container, execute os comandos:"
+echo "   a) Instale o JRE e ferramentas de teste: apt update && apt install -y openjdk-17-jre iputils-ping curl e2fsprogs"
+echo "   b) Navegue para a pasta do projeto: cd $PASTA_CONTAINER"
+echo "   c) Obtenha o IP da LAN do cliente: ip addr show eth0 (Anote o IP, ex: 172.31.66.3)"
+echo "   d) Crie ou edite o script cliente (client1.sh) em $PASTA_CONTAINER/client1.sh:"
+echo "      (Conteúdo exato do script do professor, mas com a certeza de que tun0 do proxy é 172.31.66.1):"
+echo "      #!/bin/sh"
+echo "      ifconfig tun0 mtu 1472 up 172.31.66.101 netmask 255.255.255.0"
+echo "      route del default"
+echo "      route add default gw 172.31.66.1 tun0"
+echo "      "
+echo "   e) Dê permissão de execução: chmod +x $PASTA_CONTAINER/client1.sh"
+echo "   f) Inicie o traffic_tunnel no modo cliente (com nohup):"
+echo "      nohup sudo $PASTA_CONTAINER/traffic_tunnel/traffic_tunnel eth0 -c <IP_DA_ETH0_DO_CLIENTE> -t $PASTA_CONTAINER/client1.sh &"
+echo "      (Aguarde 5 segundos e verifique tun0 com 'ip addr show tun0', deve ser 172.31.66.101)"
+echo "   g) **NÃO É NECESSÁRIO EDITAR /etc/resolv.conf MANUALMENTE AGORA (Docker já configurou via --dns).**"
+echo "   h) Teste o tráfego: ping google.com OU curl https://www.example.com"
+echo "      (Observe o monitor no container do Servidor Proxy!)"
 
 echo ""
-echo "3. Para cada container Cliente (ex: client1):"
-echo "   podman exec -it ${CLIENT_CONTAINER_NAME_PREFIX}1 bash"
-echo "   Dentro do cliente, vá para $PASTA_CONTAINER (ex: cd /home/lab-redes/traffic_tunnel_bin)."
-echo "   Obtenha o IP do cliente na rede 'lab_redes_tunel': ip addr show eth0"
-echo "   Execute o traffic_tunnel no modo cliente (ajuste 'client1.sh' para o IP do proxy):"
-echo "   sudo ./traffic_tunnel <interface_cliente_LAN_ex_eth0> -c <ip_cliente_LAN> -t client1.sh"
-echo "   # O arquivo client1.sh deve conter a configuração do túnel para o IP do proxy (172.31.66.1)"
-echo "   # Exemplo do que pode estar em client1.sh (substitua <IP_PROXY_TUN0> pelo IP da tun0 do proxy, geralmente 172.31.66.1):"
-echo "   # ip link set tun0 up"
-echo "   # ip addr add 172.31.66.X/24 dev tun0" # X é um IP diferente do proxy, ex: 172.31.66.2
-echo "   # ip route add default via <IP_PROXY_TUN0> dev tun0"
-echo "   # Teste o tráfego: ping google.com ou curl google.com"
-
-echo ""
-echo "Lembre-se de que a compilação do traffic_tunnel deve ser feita previamente no seu ambiente Linux."
-echo "Certifique-se de que os executáveis e scripts necessários estejam na $PASTA_LOCAL antes de iniciar os containers."
+echo "--- Fim do Script de Configuração ---"

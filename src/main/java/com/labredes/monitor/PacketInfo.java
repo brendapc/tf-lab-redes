@@ -2,10 +2,6 @@ package com.labredes.monitor;
 
 import java.time.LocalDateTime;
 
-/**
- * Classe que armazena informações extraídas de um pacote de rede
- * para as camadas 2, 3 e 4 do modelo TCP/IP
- */
 public class PacketInfo {
   private final LocalDateTime timestamp;
 
