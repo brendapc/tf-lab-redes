@@ -1,0 +1,29 @@
+rodar os tuneis
+
+servidor (proxy-server):
+IP da eth0: 172.31.66.2
+ ./traffic_tunnel eth0 -s 172.31.66.2
+
+ifconfig tun0
+
+cliente:
+IP da eth0: 172.31.66.3
+ ./traffic_tunnel eth0 -c 172.31.66.2 -t ./client1.sh
+
+ifconfig tun0
+
+erros:
+ chmod +x *.sh -> dentro de traffic_tunnel/traffic_tunnel
+apt update && apt install -y net-tools
+-----------------------
+
+Testar o monitor
+
+mvn clean package
+
+java -jar target/network-monitor-1.0.0.jar [tun0 ou eth0]
+
+pegar ips para mandar o ping: ifconfig [tun0 ou eth0]
+
+-----------------------
+
