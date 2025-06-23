@@ -18,19 +18,20 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class NetworkMonitor {
   private static final Logger logger = LoggerFactory.getLogger(NetworkMonitor.class);
-  private static final String INTERFACE_NAME = "tun0";
   private static final int SNAPLEN = 65536;
   private static final int READ_TIMEOUT = 10;
 
+  private final String interfaceName;
   private final PacketAnalyzer packetAnalyzer;
   private final StatisticsDisplay statisticsDisplay;
   private final CsvLogger csvLogger;
   private final AtomicBoolean running;
   private final ExecutorService executorService;
 
-  public NetworkMonitor() {
+  public NetworkMonitor(String interfaceName) {
+    this.interfaceName = interfaceName;
     this.packetAnalyzer = new PacketAnalyzer();
-    this.statisticsDisplay = new StatisticsDisplay();
+    this.statisticsDisplay = new StatisticsDisplay(interfaceName);
     this.csvLogger = new CsvLogger();
     this.running = new AtomicBoolean(false);
     this.executorService = Executors.newFixedThreadPool(2);
@@ -43,7 +44,7 @@ public class NetworkMonitor {
     }
 
     running.set(true);
-    logger.info("Iniciando monitor de tráfego na interface: {}", INTERFACE_NAME);
+    logger.info("Iniciando monitor de tráfego na interface: {}", interfaceName);
 
     try {
       // Inicializa os logs CSV
@@ -78,7 +79,7 @@ public class NetworkMonitor {
   private void startPacketCapture() throws PcapNativeException, NotOpenException {
     PcapNetworkInterface nif = getNetworkInterface();
     if (nif == null) {
-      throw new RuntimeException("Interface " + INTERFACE_NAME + " não encontrada");
+      throw new RuntimeException("Interface " + interfaceName + " não encontrada");
     }
 
     PcapHandle handle = nif.openLive(SNAPLEN, PcapNetworkInterface.PromiscuousMode.PROMISCUOUS, READ_TIMEOUT);
@@ -99,12 +100,12 @@ public class NetworkMonitor {
 
   private PcapNetworkInterface getNetworkInterface() throws PcapNativeException {
     PcapNetworkInterface nif = Pcaps.findAllDevs().stream()
-        .filter(device -> device.getName().equals(INTERFACE_NAME))
+        .filter(device -> device.getName().equals(interfaceName))
         .findFirst()
         .orElse(null);
 
     if (nif == null) {
-      logger.error("Interface {} não encontrada. Interfaces disponíveis:", INTERFACE_NAME);
+      logger.error("Interface {} não encontrada. Interfaces disponíveis:", interfaceName);
       Pcaps.findAllDevs().forEach(device -> logger.info("  - {}", device.getName()));
     }
 
@@ -130,7 +131,12 @@ public class NetworkMonitor {
   }
 
   public static void main(String[] args) {
-    NetworkMonitor monitor = new NetworkMonitor();
+    if (args.length < 1) {
+      System.err.println("Uso: java -jar network-monitor-1.0.0.jar <interface>");
+      System.exit(1);
+    }
+    String interfaceName = args[0];
+    NetworkMonitor monitor = new NetworkMonitor(interfaceName);
 
     // Adiciona shutdown hook para parar graciosamente
     Runtime.getRuntime().addShutdownHook(new Thread(() -> {

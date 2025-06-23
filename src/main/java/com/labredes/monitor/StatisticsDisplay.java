@@ -18,13 +18,19 @@ public class StatisticsDisplay implements Runnable {
   private final ConcurrentHashMap<String, AtomicLong> networkCounters;
   private final AtomicLong totalPackets;
   private final AtomicLong totalBytes;
+  private final String interfaceName;
 
-  public StatisticsDisplay() {
+  public StatisticsDisplay(String interfaceName) {
     this.running = new AtomicBoolean(true);
     this.protocolCounters = new ConcurrentHashMap<>();
     this.networkCounters = new ConcurrentHashMap<>();
     this.totalPackets = new AtomicLong(0);
     this.totalBytes = new AtomicLong(0);
+    this.interfaceName = interfaceName;
+  }
+
+  public StatisticsDisplay() {
+    this("tun0");
   }
 
   public void updateStatistics(PacketInfo packetInfo) {
@@ -71,7 +77,7 @@ public class StatisticsDisplay implements Runnable {
 
     System.out.println("+==============================================================+");
     System.out.println("|                MONITOR DE TRAFEGO DE REDE                   |");
-    System.out.println("|                    Interface: tun0                          |");
+    System.out.printf("|                    Interface: %-28s                          |\n", interfaceName);
     System.out.println("|                    " + timestamp + "                    |");
     System.out.println("+==============================================================+");
     System.out.println("|                        ESTATISTICAS GERAIS                  |");
